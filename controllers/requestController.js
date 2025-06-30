@@ -80,7 +80,8 @@ const requestController = {
       priority,
       status,
       latitude,
-      longitude
+      longitude,
+      staff_id
     } = req.body;
 
     try {
@@ -96,7 +97,8 @@ const requestController = {
              priority = ?,
              status = ?,
              latitude = ?,
-             longitude = ?
+             longitude = ?,
+             staff_id = COALESCE(?, staff_id)
          WHERE id = ?`,
         [
           service_type_id,
@@ -110,6 +112,7 @@ const requestController = {
           status,
           latitude,
           longitude,
+          staff_id || null,
           id
         ]
       );

@@ -13,10 +13,23 @@ const teamController = {
     try {
       console.log('Creating team:', { name, members });
       
-      // Create the team
+      // Find the crew commander (team leader) id
+      let crewCommanderId = null;
+      if (Array.isArray(members) && members.length > 0) {
+        // Query staff table for these members and find the one with role 'Team Leader'
+        const [staffRows] = await db.query(
+          `SELECT id, role FROM staff WHERE id IN (${members.map(() => '?').join(',')})`,
+          members
+        );
+        const teamLeader = staffRows.find(row => row.role === 'Team Leader');
+        if (teamLeader) {
+          crewCommanderId = teamLeader.id;
+        }
+      }
+      // Create the team with crew_commander_id
       const [result] = await db.query(
-        'INSERT INTO teams (name) VALUES (?)',
-        [name]
+        'INSERT INTO teams (name, crew_commander_id) VALUES (?, ?)',
+        [name, crewCommanderId]
       );
       
       const teamId = result.insertId;

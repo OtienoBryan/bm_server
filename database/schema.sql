@@ -38,4 +38,13 @@ CREATE TABLE IF NOT EXISTS sos (
 INSERT INTO sos (sos_type, latitude, longitude, staff_id, status) VALUES
 ('emergency', 51.5074, -0.1278, 1, 'pending'),
 ('medical', 51.5074, -0.1278, 2, 'pending'),
-('security', 51.5074, -0.1278, 3, 'in_progress'); 
+('security', 51.5074, -0.1278, 3, 'in_progress');
+
+CREATE TABLE IF NOT EXISTS teams (
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  name VARCHAR(255) NOT NULL,
+  crew_commander_id INT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (crew_commander_id) REFERENCES staff(id)
+); 

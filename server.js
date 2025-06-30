@@ -317,6 +317,14 @@ app.patch('/api/requests/:id', async (req, res) => {
       longitude: updates.longitude
     };
 
+    // If team_id is present, fetch crew_commander_id and set staff_id
+    if (updates.team_id) {
+      const [teamRows] = await db.query('SELECT crew_commander_id FROM teams WHERE id = ?', [updates.team_id]);
+      if (teamRows.length > 0 && teamRows[0].crew_commander_id) {
+        dbUpdates.staff_id = teamRows[0].crew_commander_id;
+      }
+    }
+
     // Remove undefined values
     Object.keys(dbUpdates).forEach(key => 
       dbUpdates[key] === undefined && delete dbUpdates[key]
@@ -359,7 +367,9 @@ app.get('/api/runs/summaries', async (req, res) => {
       SELECT 
         DATE(pickup_date) as date,
         COUNT(*) as totalRuns,
-        SUM(CASE WHEN status = 'completed' THEN price ELSE 0 END) as totalAmount
+        SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as totalRunsCompleted,
+        SUM(price) as totalAmount,
+        SUM(CASE WHEN status = 'completed' THEN price ELSE 0 END) as totalAmountCompleted
       FROM requests r
       LEFT JOIN branches b ON r.branch_id = b.id
       WHERE r.my_status = 3
@@ -446,7 +456,7 @@ app.get('/api/sos', async (req, res) => {
     const query = `
       SELECT s.*, st.name as guard_name
       FROM sos s
-      LEFT JOIN staff st ON s.staff_id = st.id
+      LEFT JOIN staff st ON s.guard_id = st.id
       ORDER BY s.created_at DESC
     `;
     
@@ -482,7 +492,7 @@ app.patch('/api/sos/:id/status', async (req, res) => {
     const [updatedSos] = await db.query(`
       SELECT s.*, st.name as guard_name
       FROM sos s
-      LEFT JOIN staff st ON s.staff_id = st.id
+      LEFT JOIN staff st ON s.guard_id = st.id
       WHERE s.id = ?
     `, [id]);
 
