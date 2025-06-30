@@ -502,7 +502,9 @@ app.patch('/api/sos/:id/status', async (req, res) => {
     res.status(500).json({ message: 'Internal server error' });
   }
 });
-
+app.get('/',(req, res) => {
+  res.send('API IS WORKING');
+});
 // Example API endpoint
 app.get('/api/test', (req, res) => {
   db.query('SELECT 1 + 1 AS solution')
