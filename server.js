@@ -16,17 +16,25 @@ require('dotenv').config();
 
 const app = express();
 
-// CORS configuration
-const corsOptions = {
-  origin: process.env.FRONTEND_URL || 'https://bm-control-room.vercel.app', // Vite's default port
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true,
-  optionsSuccessStatus: 200
-};
+// CORS configuration for all environments
+app.use((req, res, next) => {
+  const allowedOrigins = ['https://bm-control-room.vercel.app', 'http://localhost:5173'];
+  const origin = req.headers.origin;
+  
+  if (allowedOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
+  }
+  
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+  next();
+});
 
-// Middleware
-app.use(cors(corsOptions));
 app.use(express.json());
 
 // Helper function to map database fields to frontend fields
@@ -502,9 +510,16 @@ app.patch('/api/sos/:id/status', async (req, res) => {
     res.status(500).json({ message: 'Internal server error' });
   }
 });
+
+// Test endpoint
+app.get('/api/test', (req, res) => {
+  res.json({ message: 'Server is running' });
+});
+
 app.get('/',(req, res) => {
   res.send('API IS WORKING');
 });
+
 // Example API endpoint
 app.get('/api/test', (req, res) => {
   db.query('SELECT 1 + 1 AS solution')
