@@ -438,7 +438,7 @@ app.get('/api/teams', teamController.getTeams);
 // Client routes
 app.get('/api/clients', clientController.getAllClients);
 app.get('/api/clients/:id', clientController.getClient);
-app.post('/api/clients', clientController.createClient);
+app.post('/api/clients', clientController.createClient);  
 app.put('/api/clients/:id', clientController.updateClient);
 app.delete('/api/clients/:id', clientController.deleteClient);
 app.get('/api/branches', branchController.getAllBranchesWithoutClient);
