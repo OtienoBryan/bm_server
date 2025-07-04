@@ -12,6 +12,7 @@ const clientController = require('./controllers/clientController');
 const branchController = require('./controllers/branchController');
 const serviceChargeController = require('./controllers/serviceChargeController');
 const noticeController = require('./controllers/noticeController');
+const noticeRoutes = require('./routes/notice.routes');
 require('dotenv').config();
 
 const app = express();
@@ -438,7 +439,7 @@ app.get('/api/teams', teamController.getTeams);
 // Client routes
 app.get('/api/clients', clientController.getAllClients);
 app.get('/api/clients/:id', clientController.getClient);
-app.post('/api/clients', clientController.createClient);  
+app.post('/api/clients', clientController.createClient);
 app.put('/api/clients/:id', clientController.updateClient);
 app.delete('/api/clients/:id', clientController.deleteClient);
 app.get('/api/branches', branchController.getAllBranchesWithoutClient);
@@ -452,11 +453,7 @@ app.put('/api/clients/:clientId/service-charges/:chargeId', serviceChargeControl
 app.delete('/api/clients/:clientId/service-charges/:chargeId', serviceChargeController.deleteServiceCharge);
 
 // Notice routes
-app.get('/api/notices', noticeController.getNotices);
-app.post('/api/notices', noticeController.createNotice);
-app.patch('/api/notices/:id', noticeController.updateNotice);
-app.delete('/api/notices/:id', noticeController.deleteNotice);
-app.patch('/api/notices/:id/status', noticeController.toggleNoticeStatus);
+app.use('/api/notices', noticeRoutes);
 
 // SOS routes
 app.get('/api/sos', async (req, res) => {
