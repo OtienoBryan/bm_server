@@ -12,21 +12,30 @@ const clientController = require('./controllers/clientController');
 const branchController = require('./controllers/branchController');
 const serviceChargeController = require('./controllers/serviceChargeController');
 const noticeController = require('./controllers/noticeController');
+const noticeRoutes = require('./routes/notice.routes');
 require('dotenv').config();
 
 const app = express();
 
-// CORS configuration
-const corsOptions = {
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173', // Vite's default port
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true,
-  optionsSuccessStatus: 200
-};
+// CORS configuration for all environments
+app.use((req, res, next) => {
+  const allowedOrigins = ['https://bm-control-room.vercel.app', 'http://localhost:5173'];
+  const origin = req.headers.origin;
+  
+  if (allowedOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
+  }
+  
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+  next();
+});
 
-// Middleware
-app.use(cors(corsOptions));
 app.use(express.json());
 
 // Helper function to map database fields to frontend fields
@@ -507,11 +516,7 @@ app.put('/api/clients/:clientId/service-charges/:chargeId', serviceChargeControl
 app.delete('/api/clients/:clientId/service-charges/:chargeId', serviceChargeController.deleteServiceCharge);
 
 // Notice routes
-app.get('/api/notices', noticeController.getNotices);
-app.post('/api/notices', noticeController.createNotice);
-app.patch('/api/notices/:id', noticeController.updateNotice);
-app.delete('/api/notices/:id', noticeController.deleteNotice);
-app.patch('/api/notices/:id/status', noticeController.toggleNoticeStatus);
+app.use('/api/notices', noticeRoutes);
 
 // SOS routes
 app.get('/api/sos', async (req, res) => {
@@ -564,6 +569,15 @@ app.patch('/api/sos/:id/status', async (req, res) => {
     console.error('Error updating SOS status:', error);
     res.status(500).json({ message: 'Internal server error' });
   }
+});
+
+// Test endpoint
+app.get('/api/test', (req, res) => {
+  res.json({ message: 'Server is running' });
+});
+
+app.get('/',(req, res) => {
+  res.send('API IS WORKING');
 });
 
 // Example API endpoint
