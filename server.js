@@ -118,6 +118,69 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
+// Add this endpoint after the auth routes
+app.patch('/api/users/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { username, email } = req.body;
+    if (!username && !email) {
+      return res.status(400).json({ message: 'No fields to update' });
+    }
+    // Build dynamic SET clause
+    const updates = [];
+    const values = [];
+    if (username) {
+      updates.push('username = ?');
+      values.push(username);
+    }
+    if (email) {
+      updates.push('email = ?');
+      values.push(email);
+    }
+    values.push(id);
+    const setClause = updates.join(', ');
+    await db.query(`UPDATE users SET ${setClause} WHERE id = ?`, values);
+    // Fetch updated user (excluding password)
+    const [users] = await db.query('SELECT id, username, email, role, created_at, updated_at FROM users WHERE id = ?', [id]);
+    if (users.length === 0) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    res.json(users[0]);
+  } catch (error) {
+    console.error('Error updating user:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// Add this endpoint after the user update endpoint
+app.patch('/api/users/:id/password', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { oldPassword, newPassword } = req.body;
+    if (!oldPassword || !newPassword) {
+      return res.status(400).json({ message: 'Old and new password are required' });
+    }
+    // Fetch user
+    const [users] = await db.query('SELECT password FROM users WHERE id = ?', [id]);
+    if (users.length === 0) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    const user = users[0];
+    // Verify old password
+    const isValid = await bcrypt.compare(oldPassword, user.password);
+    if (!isValid) {
+      return res.status(400).json({ message: 'Old password is incorrect' });
+    }
+    // Hash new password
+    const hashed = await bcrypt.hash(newPassword, 10);
+    await db.query('UPDATE users SET password = ? WHERE id = ?', [hashed, id]);
+    res.json({ message: 'Password updated successfully' });
+  } catch (error) {
+    console.error('Error updating password:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
 // Service Types routes
 app.get('/api/service-types', async (req, res) => {
   try {
