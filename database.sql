@@ -130,6 +130,68 @@ CREATE TABLE IF NOT EXISTS daily_runs (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
+-- Create team_members table
+CREATE TABLE IF NOT EXISTS team_members (
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  team_id INT NOT NULL,
+  staff_id INT NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE,
+  FOREIGN KEY (staff_id) REFERENCES staff(id) ON DELETE CASCADE,
+  UNIQUE KEY unique_team_staff (team_id, staff_id)
+);
+
+-- Create team_vehicles table
+CREATE TABLE IF NOT EXISTS team_vehicles (
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  team_id INT NOT NULL,
+  vehicle_id INT NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE,
+  FOREIGN KEY (vehicle_id) REFERENCES vehicles(id) ON DELETE CASCADE,
+  UNIQUE KEY unique_team_vehicle (team_id, vehicle_id)
+);
+
+-- Add status field to teams table to track daily creation
+ALTER TABLE teams ADD COLUMN IF NOT EXISTS status TINYINT DEFAULT 1;
+ALTER TABLE teams ADD COLUMN IF NOT EXISTS creation_date DATE DEFAULT (CURDATE());
+
+-- Create vehicle_models table
+CREATE TABLE IF NOT EXISTS vehicle_models (
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  name VARCHAR(100) NOT NULL UNIQUE,
+  consumption DECIMAL(5, 2) NOT NULL COMMENT 'Default fuel consumption in Km/L',
+  status TINYINT DEFAULT 1 COMMENT '1 = Active, 0 = Inactive',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+-- Create vehicles table
+CREATE TABLE IF NOT EXISTS vehicles (
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  registration_number VARCHAR(20) NOT NULL UNIQUE,
+  model_id INT NOT NULL,
+  consumption DECIMAL(5, 2) NOT NULL COMMENT 'Fuel consumption in Km/L (can override model default)',
+  status TINYINT DEFAULT 1 COMMENT '1 = Active, 0 = Inactive',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (model_id) REFERENCES vehicle_models(id) ON DELETE RESTRICT
+);
+
+-- Insert some default vehicle models
+INSERT INTO vehicle_models (name, consumption) VALUES 
+('Toyota Hilux', 12.5),
+('Toyota Land Cruiser', 10.8),
+('Ford Ranger', 11.2),
+('Nissan Navara', 12.0),
+('Isuzu D-Max', 11.8),
+('Mitsubishi L200', 11.5),
+('Mazda BT-50', 11.0),
+('Volkswagen Amarok', 10.5),
+('Chevrolet Colorado', 11.3),
+('GMC Canyon', 10.9)
+ON DUPLICATE KEY UPDATE id=id;
+
 -- Insert test user (password: test123)
 INSERT INTO users (username, email, password, role) VALUES 
 ('test', 'test@example.com', '$2a$10$X7UrH5YxX5YxX5YxX5YxX.5YxX5YxX5YxX5YxX5YxX5YxX5YxX', 'admin')

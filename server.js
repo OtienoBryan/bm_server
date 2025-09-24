@@ -8,6 +8,8 @@ const roleController = require('./controllers/roleController');
 const { upload } = require('./config/cloudinary');
 const uploadController = require('./controllers/uploadController');
 const teamController = require('./controllers/teamController');
+const vehicleController = require('./controllers/vehicleController');
+const vehicleModelController = require('./controllers/vehicleModelController');
 const clientController = require('./controllers/clientController');
 const branchController = require('./controllers/branchController');
 const serviceChargeController = require('./controllers/serviceChargeController');
@@ -54,6 +56,7 @@ const mapRequestFields = (request) => ({
   myStatus: request.my_status,
   branchId: request.branch_id,
   branchName: request.branch_name,
+  clientName: request.client_name,
   price: request.price,
   latitude: request.latitude,
   longitude: request.longitude,
@@ -225,11 +228,14 @@ app.get('/api/service-types/:id', async (req, res) => {
 app.get('/api/requests', async (req, res) => {
   try {
     const { status, myStatus } = req.query;
+    console.log('API Request - Query params:', { status, myStatus, typeOfMyStatus: typeof myStatus });
+    
     let query = `
-      SELECT r.*, b.name as branch_name, st.name as service_type_name
+      SELECT r.*, b.name as branch_name, st.name as service_type_name, c.name as client_name
       FROM requests r
       LEFT JOIN branches b ON r.branch_id = b.id
       LEFT JOIN service_types st ON r.service_type_id = st.id
+      LEFT JOIN clients c ON b.client_id = c.id
     `;
     const params = [];
 
@@ -250,7 +256,9 @@ app.get('/api/requests', async (req, res) => {
     query += ' ORDER BY r.created_at DESC';
     
     const [requests] = await db.query(query, params);
-    res.json(requests.map(mapRequestFields));
+    const mappedRequests = requests.map(mapRequestFields);
+    
+    res.json(mappedRequests);
   } catch (error) {
     console.error('Error fetching requests:', error);
     res.status(500).json({ message: 'Internal server error' });
@@ -498,6 +506,24 @@ app.post('/api/upload', upload.single('photo'), uploadController.uploadImage);
 // Team routes
 app.post('/api/teams', teamController.createTeam);
 app.get('/api/teams', teamController.getTeams);
+app.get('/api/teams/check-today', teamController.checkTeamsForToday);
+
+// Vehicle Model routes
+app.get('/api/vehicle-models', vehicleModelController.getAllVehicleModels);
+app.get('/api/vehicle-models/active', vehicleModelController.getActiveVehicleModels);
+app.get('/api/vehicle-models/:id', vehicleModelController.getVehicleModel);
+app.post('/api/vehicle-models', vehicleModelController.createVehicleModel);
+app.put('/api/vehicle-models/:id', vehicleModelController.updateVehicleModel);
+app.delete('/api/vehicle-models/:id', vehicleModelController.deleteVehicleModel);
+app.put('/api/vehicle-models/:id/status', vehicleModelController.updateVehicleModelStatus);
+
+// Vehicle routes
+app.get('/api/vehicles', vehicleController.getAllVehicles);
+app.get('/api/vehicles/:id', vehicleController.getVehicle);
+app.post('/api/vehicles', vehicleController.createVehicle);
+app.put('/api/vehicles/:id', vehicleController.updateVehicle);
+app.delete('/api/vehicles/:id', vehicleController.deleteVehicle);
+app.put('/api/vehicles/:id/status', vehicleController.updateVehicleStatus);
 
 // Client routes
 app.get('/api/clients', clientController.getAllClients);
