@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS requests (
   my_status TINYINT DEFAULT 0,
   latitude DECIMAL(10, 8),
   longitude DECIMAL(11, 8),
+  client_name VARCHAR(255) NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (user_id) REFERENCES users(id),
@@ -101,6 +102,20 @@ CREATE TABLE IF NOT EXISTS service_charges (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (client_id) REFERENCES clients(id),
   FOREIGN KEY (service_type_id) REFERENCES service_types(id)
+);
+
+-- Create processing_fees table
+CREATE TABLE IF NOT EXISTS processing_fees (
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  client_id INT NOT NULL,
+  fee_type VARCHAR(100) NOT NULL,
+  description TEXT,
+  amount DECIMAL(10, 2) NOT NULL,
+  is_percentage BOOLEAN DEFAULT FALSE,
+  is_active BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE
 );
 
 -- Create notices table

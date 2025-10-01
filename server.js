@@ -13,6 +13,7 @@ const vehicleModelController = require('./controllers/vehicleModelController');
 const clientController = require('./controllers/clientController');
 const branchController = require('./controllers/branchController');
 const serviceChargeController = require('./controllers/serviceChargeController');
+const processingFeeController = require('./controllers/processingFeeController');
 const noticeController = require('./controllers/noticeController');
 const noticeRoutes = require('./routes/notice.routes');
 require('dotenv').config();
@@ -55,8 +56,8 @@ const mapRequestFields = (request) => ({
   status: request.status,
   myStatus: request.my_status,
   branchId: request.branch_id,
-  branchName: request.branch_name,
-  clientName: request.client_name,
+  branchName: request.branch_id === 0 ? request.client_name : request.branch_name,
+  clientName: request.branch_id === 0 ? 'Adhoc Request' : request.client_name,
   price: request.price,
   latitude: request.latitude,
   longitude: request.longitude,
@@ -231,7 +232,8 @@ app.get('/api/requests', async (req, res) => {
     console.log('API Request - Query params:', { status, myStatus, typeOfMyStatus: typeof myStatus });
     
     let query = `
-      SELECT r.*, b.name as branch_name, st.name as service_type_name, c.name as client_name
+      SELECT r.*, b.name as branch_name, st.name as service_type_name, 
+             COALESCE(r.client_name, c.name) as client_name
       FROM requests r
       LEFT JOIN branches b ON r.branch_id = b.id
       LEFT JOIN service_types st ON r.service_type_id = st.id
@@ -280,7 +282,8 @@ app.post('/api/requests', async (req, res) => {
       branchId,
       price,
       latitude,
-      longitude
+      longitude,
+      clientName
     } = req.body;
 
     console.log('Received request data:', {
@@ -296,11 +299,14 @@ app.post('/api/requests', async (req, res) => {
       branchId,
       price,
       latitude,
-      longitude
+      longitude,
+      clientName
     });
 
-    // Validate required fields
-    if (!userId || !userName || !serviceTypeId || !pickupLocation || !deliveryLocation || !pickupDate || !branchId || !price) {
+    console.log('Branch ID details:', { branchId, type: typeof branchId, isZero: branchId === 0, isStringZero: branchId === '0' });
+
+    // Validate required fields (allow branchId = 0 for Adhoc requests)
+    if (!userId || !userName || !serviceTypeId || !pickupLocation || !deliveryLocation || !pickupDate || (branchId === null || branchId === undefined) || !price) {
       console.log('Missing required fields:', {
         userId: !userId,
         userName: !userName,
@@ -308,7 +314,7 @@ app.post('/api/requests', async (req, res) => {
         pickupLocation: !pickupLocation,
         deliveryLocation: !deliveryLocation,
         pickupDate: !pickupDate,
-        branchId: !branchId,
+        branchId: branchId === null || branchId === undefined,
         price: !price
       });
       return res.status(400).json({ message: 'Missing required fields' });
@@ -336,15 +342,17 @@ app.post('/api/requests', async (req, res) => {
       return res.status(400).json({ message: 'Invalid user' });
     }
 
-    // Check if branch exists
-    const [branches] = await db.query(
-      'SELECT id FROM branches WHERE id = ?',
-      [branchId]
-    );
+    // Check if branch exists (skip for Adhoc requests with branchId = 0)
+    if (branchId !== 0 && branchId !== '0') {
+      const [branches] = await db.query(
+        'SELECT id FROM branches WHERE id = ?',
+        [branchId]
+      );
 
-    if (branches.length === 0) {
-      console.error('Branch not found:', branchId);
-      return res.status(400).json({ message: 'Invalid branch' });
+      if (branches.length === 0) {
+        console.error('Branch not found:', branchId);
+        return res.status(400).json({ message: 'Invalid branch' });
+      }
     }
 
     // Insert the request with price and coordinates
@@ -353,13 +361,13 @@ app.post('/api/requests', async (req, res) => {
         user_id, user_name, service_type_id, branch_id, 
         pickup_location, delivery_location, pickup_date, 
         description, priority, status, my_status, price,
-        latitude, longitude
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        latitude, longitude, client_name
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         userId, userName, serviceTypeId, branchId,
         pickupLocation, deliveryLocation, pickupDate,
         description || null, priority || 'medium', 'pending', myStatus, price,
-        latitude || null, longitude || null
+        latitude || null, longitude || null, clientName || null
       ]
     );
 
@@ -540,6 +548,12 @@ app.get('/api/clients/:clientId/service-charges', serviceChargeController.getSer
 app.post('/api/clients/:clientId/service-charges', serviceChargeController.createServiceCharge);
 app.put('/api/clients/:clientId/service-charges/:chargeId', serviceChargeController.updateServiceCharge);
 app.delete('/api/clients/:clientId/service-charges/:chargeId', serviceChargeController.deleteServiceCharge);
+
+// Processing Fee routes
+app.get('/api/clients/:clientId/processing-fees', processingFeeController.getProcessingFees);
+app.post('/api/clients/:clientId/processing-fees', processingFeeController.createProcessingFee);
+app.put('/api/clients/:clientId/processing-fees/:feeId', processingFeeController.updateProcessingFee);
+app.delete('/api/clients/:clientId/processing-fees/:feeId', processingFeeController.deleteProcessingFee);
 
 // Notice routes
 app.use('/api/notices', noticeRoutes);
