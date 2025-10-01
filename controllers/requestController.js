@@ -2,18 +2,49 @@ const db = require('../database/db');
 
 const requestController = {
   getRequests: async (req, res) => {
-    const { date } = req.query;
+    const { date, status, myStatus } = req.query;
 
     try {
-      const [requests] = await db.query(
-        `SELECT r.*, u.username as user_name, st.name as service_type_name
-         FROM requests r
-         LEFT JOIN users u ON r.user_id = u.id
-         LEFT JOIN service_types st ON r.service_type_id = st.id
-         WHERE DATE(r.pickup_date) = ?
-         ORDER BY r.pickup_date ASC`,
-        [date]
-      );
+      let query = `
+        SELECT r.*, 
+               u.username as userName, 
+               st.name as serviceTypeName,
+               b.name as branchName,
+               COALESCE(c.name, r.client_name) as clientName,
+               r.pickup_location as pickupLocation,
+               r.delivery_location as deliveryLocation
+        FROM requests r
+        LEFT JOIN users u ON r.user_id = u.id
+        LEFT JOIN service_types st ON r.service_type_id = st.id
+        LEFT JOIN branches b ON r.branch_id = b.id
+        LEFT JOIN clients c ON b.client_id = c.id
+      `;
+      
+      const conditions = [];
+      const params = [];
+      
+      if (date) {
+        conditions.push('DATE(r.pickup_date) = ?');
+        params.push(date);
+      }
+      
+      if (status) {
+        conditions.push('r.status = ?');
+        params.push(status);
+      }
+      
+      if (myStatus !== undefined) {
+        conditions.push('r.my_status = ?');
+        params.push(myStatus);
+      }
+      
+      if (conditions.length > 0) {
+        query += ' WHERE ' + conditions.join(' AND ');
+      }
+      
+      query += ' ORDER BY r.pickup_date ASC';
+      
+      const [requests] = await db.query(query, params);
       res.json(requests);
     } catch (error) {
       console.error('Error fetching requests:', error);
@@ -52,10 +83,16 @@ const requestController = {
       );
 
       const [newRequest] = await db.query(
-        `SELECT r.*, u.username as user_name, st.name as service_type_name
+        `SELECT r.*, 
+                u.username as user_name, 
+                st.name as service_type_name,
+                b.name as branch_name,
+                c.name as client_name
          FROM requests r
          LEFT JOIN users u ON r.user_id = u.id
          LEFT JOIN service_types st ON r.service_type_id = st.id
+         LEFT JOIN branches b ON r.branch_id = b.id
+         LEFT JOIN clients c ON b.client_id = c.id
          WHERE r.id = ?`,
         [result.insertId]
       );
@@ -118,10 +155,16 @@ const requestController = {
       );
 
       const [updatedRequest] = await db.query(
-        `SELECT r.*, u.username as user_name, st.name as service_type_name
+        `SELECT r.*, 
+                u.username as user_name, 
+                st.name as service_type_name,
+                b.name as branch_name,
+                c.name as client_name
          FROM requests r
          LEFT JOIN users u ON r.user_id = u.id
          LEFT JOIN service_types st ON r.service_type_id = st.id
+         LEFT JOIN branches b ON r.branch_id = b.id
+         LEFT JOIN clients c ON b.client_id = c.id
          WHERE r.id = ?`,
         [id]
       );
@@ -165,10 +208,16 @@ const requestController = {
       );
 
       const [updatedRequest] = await db.query(
-        `SELECT r.*, u.username as user_name, st.name as service_type_name
+        `SELECT r.*, 
+                u.username as user_name, 
+                st.name as service_type_name,
+                b.name as branch_name,
+                c.name as client_name
          FROM requests r
          LEFT JOIN users u ON r.user_id = u.id
          LEFT JOIN service_types st ON r.service_type_id = st.id
+         LEFT JOIN branches b ON r.branch_id = b.id
+         LEFT JOIN clients c ON b.client_id = c.id
          WHERE r.id = ?`,
         [id]
       );
