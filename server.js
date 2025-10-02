@@ -22,7 +22,7 @@ const app = express();
 
 // CORS configuration for all environments
 app.use((req, res, next) => {
-  const allowedOrigins = ['https://bm-control-room.vercel.app', 'http://localhost:5173', 'http://localhost:5174'];
+  const allowedOrigins = ['https://bm-control-room.vercel.app', 'http://localhost:5173', 'http://localhost:5174', 'http://localhost:5005'];
   const origin = req.headers.origin;
   
   if (allowedOrigins.includes(origin)) {
