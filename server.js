@@ -22,7 +22,14 @@ const app = express();
 
 // CORS configuration for all environments
 app.use((req, res, next) => {
-  const allowedOrigins = ['https://bm-control-room.vercel.app', 'http://localhost:5173', 'http://localhost:5174', 'http://localhost:5005'];
+  const allowedOrigins = [
+    'https://bm-control-room.vercel.app', 
+    'https://bm-control-room-w2ud.vercel.app', 
+    'http://localhost:5173', 
+    'http://localhost:5174', 
+    'http://localhost:5005',
+    'http://139.59.44.175:5005'
+  ];
   const origin = req.headers.origin;
   
   if (allowedOrigins.includes(origin)) {
@@ -57,7 +64,7 @@ const mapRequestFields = (request) => ({
   myStatus: request.my_status,
   branchId: request.branch_id,
   branchName: request.branch_id === 0 ? request.client_name : request.branch_name,
-  clientName: request.branch_id === 0 ? 'Adhoc Request' : request.client_name,
+  clientName: request.branch_id === 0 ? request.client_name : request.client_name,
   price: request.price,
   latitude: request.latitude,
   longitude: request.longitude,

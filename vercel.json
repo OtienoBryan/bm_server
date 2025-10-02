@@ -21,7 +21,7 @@
       "headers": [
         {
           "key": "Access-Control-Allow-Origin",
-          "value": "https://bm-control-room.vercel.app"
+          "value": "https://bm-control-room-w2ud.vercel.app"
         },
         {
           "key": "Access-Control-Allow-Methods",
