@@ -5,6 +5,8 @@ const requestController = {
     const { date, status, myStatus } = req.query;
 
     try {
+      console.log('getRequests - Query params:', { date, status, myStatus });
+      
       let query = `
         SELECT r.*, 
                u.username as userName, 
@@ -24,8 +26,12 @@ const requestController = {
       const params = [];
       
       if (date) {
-        conditions.push('DATE(r.pickup_date) = ?');
-        params.push(date);
+        // Ensure date is in YYYY-MM-DD format
+        const dateStr = date.split('T')[0]; // Remove time if present
+        console.log('Filtering by date:', dateStr);
+        // Use DATE_FORMAT to match exactly with how dates are stored/formatted
+        conditions.push('DATE_FORMAT(r.pickup_date, \'%Y-%m-%d\') = ?');
+        params.push(dateStr);
       }
       
       if (status) {
@@ -44,7 +50,11 @@ const requestController = {
       
       query += ' ORDER BY r.pickup_date ASC';
       
+      console.log('Executing query:', query);
+      console.log('With params:', params);
+      
       const [requests] = await db.query(query, params);
+      console.log(`Found ${requests.length} requests`);
       res.json(requests);
     } catch (error) {
       console.error('Error fetching requests:', error);
@@ -230,6 +240,55 @@ const requestController = {
     } catch (error) {
       console.error('Error updating request status:', error);
       res.status(500).json({ message: 'Error updating request status', error: error.message });
+    }
+  },
+
+  getDoneRequestDates: async (req, res) => {
+    const { year, month } = req.query;
+
+    try {
+      let query = `
+        SELECT 
+          DATE_FORMAT(r.pickup_date, '%Y-%m-%d') as date,
+          COUNT(*) as totalRequests,
+          SUM(r.price) as totalAmount
+        FROM requests r
+        WHERE r.my_status = 3 AND r.pickup_date IS NOT NULL
+      `;
+      const params = [];
+
+      if (year) {
+        query += ' AND YEAR(r.pickup_date) = ?';
+        params.push(year);
+      }
+
+      if (month) {
+        query += ' AND MONTH(r.pickup_date) = ?';
+        params.push(month);
+      }
+
+      query += `
+        GROUP BY DATE_FORMAT(r.pickup_date, '%Y-%m-%d')
+        ORDER BY date DESC
+      `;
+
+      console.log('getDoneRequestDates - Query:', query);
+      console.log('getDoneRequestDates - Parameters:', params);
+
+      const [summaries] = await db.query(query, params);
+      console.log(`getDoneRequestDates - Found ${summaries.length} unique dates`);
+
+      // Ensure dates are returned as strings
+      const formattedSummaries = summaries.map(summary => ({
+        ...summary,
+        date: summary.date ? String(summary.date).split('T')[0].split(' ')[0] : summary.date
+      }));
+
+      console.log('getDoneRequestDates - First summary date:', formattedSummaries[0]?.date);
+      res.json(formattedSummaries);
+    } catch (error) {
+      console.error('Error fetching done request dates:', error);
+      res.status(500).json({ message: 'Error fetching done request dates', error: error.message });
     }
   }
 };

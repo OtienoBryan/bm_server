@@ -233,6 +233,55 @@ app.get('/api/service-types/:id', async (req, res) => {
 });
 
 // Requests routes
+// Get unique dates for done requests (my_status = 3)
+app.get('/api/requests/done/dates', async (req, res) => {
+  try {
+    const { year, month } = req.query;
+    let query = `
+      SELECT 
+        DATE_FORMAT(r.pickup_date, '%Y-%m-%d') as date,
+        COUNT(*) as totalRequests,
+        SUM(r.price) as totalAmount
+      FROM requests r
+      WHERE r.my_status = 3 AND r.pickup_date IS NOT NULL
+    `;
+    const params = [];
+
+    if (year) {
+      query += ' AND YEAR(r.pickup_date) = ?';
+      params.push(year);
+    }
+
+    if (month) {
+      query += ' AND MONTH(r.pickup_date) = ?';
+      params.push(month);
+    }
+
+    query += `
+      GROUP BY DATE_FORMAT(r.pickup_date, '%Y-%m-%d')
+      ORDER BY date DESC
+    `;
+
+    console.log('getDoneRequestDates - Query:', query);
+    console.log('getDoneRequestDates - Parameters:', params);
+
+    const [summaries] = await db.query(query, params);
+    console.log(`getDoneRequestDates - Found ${summaries.length} unique dates`);
+
+    // Ensure dates are returned as strings
+    const formattedSummaries = summaries.map(summary => ({
+      ...summary,
+      date: summary.date ? String(summary.date).split('T')[0].split(' ')[0] : summary.date
+    }));
+
+    console.log('getDoneRequestDates - First summary date:', formattedSummaries[0]?.date);
+    res.json(formattedSummaries);
+  } catch (error) {
+    console.error('Error fetching done request dates:', error);
+    res.status(500).json({ message: 'Error fetching done request dates', error: error.message });
+  }
+});
+
 app.get('/api/requests', async (req, res) => {
   try {
     const { status, myStatus } = req.query;
@@ -460,14 +509,14 @@ app.get('/api/runs/summaries', async (req, res) => {
     const { year, month, clientId, branchId } = req.query;
     let query = `
       SELECT 
-        DATE(pickup_date) as date,
+        DATE(r.pickup_date) as date,
         COUNT(*) as totalRuns,
-        SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as totalRunsCompleted,
-        SUM(price) as totalAmount,
-        SUM(CASE WHEN status = 'completed' THEN price ELSE 0 END) as totalAmountCompleted
+        SUM(CASE WHEN r.status = 'completed' THEN 1 ELSE 0 END) as totalRunsCompleted,
+        SUM(r.price) as totalAmount,
+        SUM(CASE WHEN r.status = 'completed' THEN r.price ELSE 0 END) as totalAmountCompleted
       FROM requests r
       LEFT JOIN branches b ON r.branch_id = b.id
-      WHERE r.my_status = 3
+      WHERE r.pickup_date IS NOT NULL
     `;
     const params = [];
 
@@ -496,7 +545,11 @@ app.get('/api/runs/summaries', async (req, res) => {
       ORDER BY date DESC
     `;
 
+    console.log('Fetching run summaries with query:', query);
+    console.log('Parameters:', params);
+
     const [summaries] = await db.query(query, params);
+    console.log(`Found ${summaries.length} date summaries`);
     res.json(summaries);
   } catch (error) {
     console.error('Error fetching run summaries:', error);

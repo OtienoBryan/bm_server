@@ -183,17 +183,60 @@ const runController = {
 
   getDateSummaries: async (req, res) => {
     try {
-      const [summaries] = await db.query(
-        `SELECT 
-          DATE(pickup_date) as date,
+      const { year, month, clientId, branchId } = req.query;
+      let query = `
+        SELECT 
+          DATE_FORMAT(r.pickup_date, '%Y-%m-%d') as date,
           COUNT(*) as totalRuns,
-          SUM(CASE WHEN status = 'completed' THEN price ELSE 0 END) as totalAmount
-         FROM requests
-         GROUP BY DATE(pickup_date)
-         ORDER BY date DESC
-         LIMIT 30`
-      );
-      res.json(summaries);
+          SUM(CASE WHEN r.status = 'completed' THEN 1 ELSE 0 END) as totalRunsCompleted,
+          SUM(r.price) as totalAmount,
+          SUM(CASE WHEN r.status = 'completed' THEN r.price ELSE 0 END) as totalAmountCompleted
+        FROM requests r
+        LEFT JOIN branches b ON r.branch_id = b.id
+        WHERE r.pickup_date IS NOT NULL
+      `;
+      const params = [];
+
+      if (year) {
+        query += ' AND YEAR(r.pickup_date) = ?';
+        params.push(year);
+      }
+
+      if (month) {
+        query += ' AND MONTH(r.pickup_date) = ?';
+        params.push(month);
+      }
+
+      if (clientId) {
+        query += ' AND b.client_id = ?';
+        params.push(clientId);
+      }
+
+      if (branchId) {
+        query += ' AND r.branch_id = ?';
+        params.push(branchId);
+      }
+
+      query += `
+        GROUP BY DATE_FORMAT(r.pickup_date, '%Y-%m-%d')
+        ORDER BY date DESC
+      `;
+
+      console.log('getDateSummaries - Query:', query);
+      console.log('getDateSummaries - Parameters:', params);
+
+      const [summaries] = await db.query(query, params);
+      console.log(`getDateSummaries - Found ${summaries.length} date summaries`);
+      
+      // DATE_FORMAT already returns string in YYYY-MM-DD format, but ensure it's clean
+      const formattedSummaries = summaries.map(summary => ({
+        ...summary,
+        date: summary.date ? String(summary.date).split('T')[0].split(' ')[0] : summary.date
+      }));
+      
+      console.log('getDateSummaries - First summary date (as string):', formattedSummaries[0]?.date);
+      console.log('getDateSummaries - First summary date type:', typeof formattedSummaries[0]?.date);
+      res.json(formattedSummaries);
     } catch (error) {
       console.error('Error fetching date summaries:', error);
       res.status(500).json({ message: 'Error fetching date summaries', error: error.message });

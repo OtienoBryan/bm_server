@@ -9,6 +9,9 @@ router.use(authenticateToken);
 // Get requests for a specific date
 router.get('/', requestController.getRequests);
 
+// Get unique dates for done requests (my_status = 3)
+router.get('/done/dates', requestController.getDoneRequestDates);
+
 // Create a new request
 router.post('/', requestController.createRequest);
 
