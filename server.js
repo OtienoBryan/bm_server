@@ -16,9 +16,17 @@ const serviceChargeController = require('./controllers/serviceChargeController')
 const processingFeeController = require('./controllers/processingFeeController');
 const noticeController = require('./controllers/noticeController');
 const noticeRoutes = require('./routes/notice.routes');
+const auditController = require('./controllers/auditController');
+const auditService = require('./services/auditService');
+const { extractUserInfo } = require('./middleware/auditMiddleware');
+const { authenticateToken } = require('./middleware/auth');
+const { DateTime } = require('luxon');
 require('dotenv').config();
 
 const app = express();
+
+// Trust proxy to get real IP addresses (important for production)
+app.set('trust proxy', true);
 
 // CORS configuration for all environments
 app.use((req, res, next) => {
@@ -47,6 +55,10 @@ app.use((req, res, next) => {
 });
 
 app.use(express.json());
+
+// Apply authentication middleware to extract user info from JWT tokens
+// This sets req.user for all requests, allowing audit logging to work
+app.use(authenticateToken);
 
 // Helper function to map database fields to frontend fields
 const mapRequestFields = (request) => ({
@@ -95,6 +107,21 @@ app.post('/api/auth/login', async (req, res) => {
 
     if (users.length === 0) {
       console.log('No user found with username:', username);
+      
+      // Log failed login attempt (user not found)
+      const userInfo = extractUserInfo(req);
+      await auditService.logActivity({
+        staffId: null,
+        staffName: null,
+        staffUsername: username,
+        action: 'LOGIN_FAILED',
+        entityType: 'user',
+        entityId: null,
+        details: { username, reason: 'User not found' },
+        ipAddress: userInfo.ipAddress,
+        userAgent: userInfo.userAgent
+      });
+      
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
@@ -107,6 +134,21 @@ app.post('/api/auth/login', async (req, res) => {
 
     if (!isValidPassword) {
       console.log('Invalid password for user:', username);
+      
+      // Log failed login attempt (invalid password)
+      const userInfo = extractUserInfo(req);
+      await auditService.logActivity({
+        staffId: user.id,
+        staffName: user.username,
+        staffUsername: username,
+        action: 'LOGIN_FAILED',
+        entityType: 'user',
+        entityId: user.id,
+        details: { username, reason: 'Invalid password' },
+        ipAddress: userInfo.ipAddress,
+        userAgent: userInfo.userAgent
+      });
+      
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
@@ -123,6 +165,21 @@ app.post('/api/auth/login', async (req, res) => {
     );
 
     console.log('Login successful for user:', username);
+    
+    // Log successful login to audit trail
+    const userInfo = extractUserInfo(req);
+    await auditService.logActivity({
+      staffId: user.id,
+      staffName: user.username,
+      staffUsername: user.username,
+      action: 'LOGIN',
+      entityType: 'user',
+      entityId: user.id,
+      details: { username: user.username, email: user.email, role: user.role },
+      ipAddress: userInfo.ipAddress,
+      userAgent: userInfo.userAgent
+    });
+
     res.json({
       token,
       user: {
@@ -134,6 +191,25 @@ app.post('/api/auth/login', async (req, res) => {
     });
   } catch (error) {
     console.error('Login error:', error);
+    
+    // Log failed login attempt to audit trail
+    try {
+      const userInfo = extractUserInfo(req);
+      await auditService.logActivity({
+        staffId: null,
+        staffName: null,
+        staffUsername: req.body.username || null,
+        action: 'LOGIN_FAILED',
+        entityType: 'user',
+        entityId: null,
+        details: { username: req.body.username, reason: 'Invalid credentials or server error' },
+        ipAddress: userInfo.ipAddress,
+        userAgent: userInfo.userAgent
+      });
+    } catch (auditError) {
+      console.error('Error logging failed login attempt:', auditError);
+    }
+    
     res.status(500).json({ message: 'Internal server error' });
   }
 });
@@ -411,6 +487,35 @@ app.post('/api/requests', async (req, res) => {
       }
     }
 
+    // Convert pickup_date to Nairobi timezone
+    let nairobiPickupDate = pickupDate;
+    try {
+      // Parse the incoming date (could be in various formats)
+      let dt = DateTime.fromISO(pickupDate, { zone: 'Africa/Nairobi' });
+      
+      // If ISO parsing fails, try SQL format
+      if (!dt.isValid) {
+        dt = DateTime.fromSQL(pickupDate, { zone: 'Africa/Nairobi' });
+      }
+      
+      // If still invalid, try as local time and convert to Nairobi
+      if (!dt.isValid) {
+        dt = DateTime.fromISO(pickupDate);
+        if (dt.isValid) {
+          dt = dt.setZone('Africa/Nairobi');
+        }
+      }
+      
+      if (dt.isValid) {
+        nairobiPickupDate = dt.setZone('Africa/Nairobi').toSQL({ includeOffset: false });
+      } else {
+        console.warn('Could not parse pickup_date, using original:', pickupDate);
+      }
+    } catch (error) {
+      console.error('Error converting pickup_date to Nairobi timezone:', error);
+      // Use original if conversion fails
+    }
+
     // Insert the request with price and coordinates
     const [result] = await db.query(
       `INSERT INTO requests (
@@ -421,17 +526,51 @@ app.post('/api/requests', async (req, res) => {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         userId, userName, serviceTypeId, branchId,
-        pickupLocation, deliveryLocation, pickupDate,
+        pickupLocation, deliveryLocation, nairobiPickupDate,
         description || null, priority || 'medium', 'pending', myStatus, price,
         latitude || null, longitude || null, clientName || null
       ]
     );
 
-    // Fetch the created request
+    // Fetch the created request with service type and branch names
     const [requests] = await db.query(
-      'SELECT * FROM requests WHERE id = ?',
+      `SELECT r.*, 
+              st.name as service_type_name,
+              b.name as branch_name,
+              COALESCE(c.name, r.client_name) as client_name
+       FROM requests r
+       LEFT JOIN service_types st ON r.service_type_id = st.id
+       LEFT JOIN branches b ON r.branch_id = b.id
+       LEFT JOIN clients c ON b.client_id = c.id
+       WHERE r.id = ?`,
       [result.insertId]
     );
+
+    // Get service type and branch names for audit log
+    const serviceTypeName = requests[0]?.service_type_name || null;
+    const branchName = requests[0]?.branch_name || (branchId === 0 ? clientName : null);
+
+    // Log audit trail
+    const userInfo = extractUserInfo(req);
+    await auditService.logActivity({
+      staffId: userId || userInfo.staffId,
+      staffName: userName || userInfo.staffName,
+      staffUsername: userName || userInfo.staffUsername,
+      action: 'CREATE_REQUEST',
+      entityType: 'request',
+      entityId: result.insertId,
+      details: {
+        serviceTypeId,
+        serviceTypeName,
+        branchId,
+        branchName,
+        pickupLocation,
+        deliveryLocation,
+        price
+      },
+      ipAddress: userInfo.ipAddress,
+      userAgent: userInfo.userAgent
+    });
 
     res.status(201).json(mapRequestFields(requests[0]));
   } catch (error) {
@@ -486,14 +625,52 @@ app.patch('/api/requests/:id', async (req, res) => {
       values
     );
 
-    // Get the updated request
+    // Get the updated request with team and service type info
     const [requests] = await db.query(
-      'SELECT * FROM requests WHERE id = ?',
+      `SELECT r.*, 
+              t.name as team_name,
+              st.name as service_type_name,
+              b.name as branch_name,
+              COALESCE(c.name, r.client_name) as client_name
+       FROM requests r
+       LEFT JOIN teams t ON r.team_id = t.id
+       LEFT JOIN service_types st ON r.service_type_id = st.id
+       LEFT JOIN branches b ON r.branch_id = b.id
+       LEFT JOIN clients c ON b.client_id = c.id
+       WHERE r.id = ?`,
       [id]
     );
 
     if (requests.length === 0) {
       return res.status(404).json({ message: 'Request not found' });
+    }
+
+    // Log audit trail if team was assigned
+    if (updates.team_id) {
+      const userInfo = extractUserInfo(req);
+      const teamName = requests[0]?.team_name || null;
+      const serviceTypeName = requests[0]?.service_type_name || null;
+      const branchName = requests[0]?.branch_name || (requests[0]?.branch_id === 0 ? requests[0]?.client_name : null);
+      
+      await auditService.logActivity({
+        staffId: userInfo.staffId,
+        staffName: userInfo.staffName,
+        staffUsername: userInfo.staffUsername,
+        action: 'ASSIGN_TEAM_TO_REQUEST',
+        entityType: 'request',
+        entityId: parseInt(id),
+        details: {
+          teamId: updates.team_id,
+          teamName: teamName,
+          requestId: parseInt(id),
+          serviceTypeName: serviceTypeName,
+          branchName: branchName,
+          status: updates.status || requests[0]?.status,
+          myStatus: updates.myStatus !== undefined ? updates.myStatus : requests[0]?.my_status
+        },
+        ipAddress: userInfo.ipAddress,
+        userAgent: userInfo.userAgent
+      });
     }
 
     res.json(mapRequestFields(requests[0]));
@@ -618,6 +795,41 @@ app.delete('/api/clients/:clientId/processing-fees/:feeId', processingFeeControl
 // Notice routes
 app.use('/api/notices', noticeRoutes);
 
+// Audit log routes
+app.get('/api/audit-logs', auditController.getAuditLogs);
+app.get('/api/audit-logs/:id', auditController.getAuditLog);
+
+// Logout endpoint
+app.post('/api/auth/logout', async (req, res) => {
+  try {
+    // Extract user info from request (may be in body, query, or headers)
+    const userInfo = extractUserInfo(req);
+    const userId = req.body.userId || req.query.userId || userInfo.staffId;
+    const username = req.body.username || req.query.username || userInfo.staffUsername;
+
+    // Log logout to audit trail
+    if (userId || username) {
+      await auditService.logActivity({
+        staffId: userId || null,
+        staffName: username || null,
+        staffUsername: username || null,
+        action: 'LOGOUT',
+        entityType: 'user',
+        entityId: userId || null,
+        details: { username: username || 'Unknown' },
+        ipAddress: userInfo.ipAddress,
+        userAgent: userInfo.userAgent
+      });
+    }
+
+    res.json({ message: 'Logged out successfully' });
+  } catch (error) {
+    console.error('Error logging logout:', error);
+    // Still return success even if audit logging fails
+    res.json({ message: 'Logged out successfully' });
+  }
+});
+
 // SOS routes
 app.get('/api/sos', async (req, res) => {
   try {
@@ -647,6 +859,21 @@ app.patch('/api/sos/:id/status', async (req, res) => {
       return res.status(400).json({ message: 'Invalid status' });
     }
 
+    // Fetch current SOS record to get old status
+    const [currentSos] = await db.query(`
+      SELECT s.*, st.name as guard_name
+      FROM sos s
+      LEFT JOIN staff st ON s.guard_id = st.id
+      WHERE s.id = ?
+    `, [id]);
+
+    if (!currentSos || currentSos.length === 0) {
+      return res.status(404).json({ message: 'SOS record not found' });
+    }
+
+    const oldStatus = currentSos[0].status;
+    const sosData = currentSos[0];
+
     const query = `
       UPDATE sos 
       SET status = ?,
@@ -663,6 +890,30 @@ app.patch('/api/sos/:id/status', async (req, res) => {
       LEFT JOIN staff st ON s.guard_id = st.id
       WHERE s.id = ?
     `, [id]);
+
+    // Log audit trail
+    const userInfo = extractUserInfo(req);
+    await auditService.logActivity({
+      staffId: userInfo.staffId,
+      staffName: userInfo.staffName,
+      staffUsername: userInfo.staffUsername,
+      action: 'UPDATE_SOS_STATUS',
+      entityType: 'sos',
+      entityId: parseInt(id),
+      details: {
+        sosId: parseInt(id),
+        sosType: sosData.sos_type,
+        oldStatus: oldStatus,
+        newStatus: status,
+        comment: comment || null,
+        guardName: sosData.guard_name,
+        staffId: sosData.staff_id,
+        latitude: sosData.latitude,
+        longitude: sosData.longitude
+      },
+      ipAddress: userInfo.ipAddress,
+      userAgent: userInfo.userAgent
+    });
 
     res.json(updatedSos[0]);
   } catch (error) {

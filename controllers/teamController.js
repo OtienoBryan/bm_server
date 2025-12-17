@@ -1,4 +1,6 @@
 const db = require('../database/db');
+const auditService = require('../services/auditService');
+const { extractUserInfo } = require('../middleware/auditMiddleware');
 
 const teamController = {
   createTeam: async (req, res) => {
@@ -92,6 +94,28 @@ const teamController = {
       
       // Filter out null values from vehicles
       team[0].vehicles = team[0].vehicles.filter(vehicle => vehicle.id !== null);
+      
+      // Log audit trail
+      const userInfo = extractUserInfo(req);
+      await auditService.logActivity({
+        staffId: userInfo.staffId,
+        staffName: userInfo.staffName,
+        staffUsername: userInfo.staffUsername,
+        action: 'CREATE_TEAM',
+        entityType: 'team',
+        entityId: teamId,
+        details: {
+          teamName: name,
+          teamId: teamId,
+          crewCommanderId: crewCommanderId,
+          memberIds: members,
+          memberNames: team[0].members.map(m => m.name),
+          vehicleIds: vehicles || [],
+          vehicleRegistrations: team[0].vehicles.map(v => v.registration_number)
+        },
+        ipAddress: userInfo.ipAddress,
+        userAgent: userInfo.userAgent
+      });
       
       console.log('Team created successfully:', team[0]);
       res.status(201).json(team[0]);

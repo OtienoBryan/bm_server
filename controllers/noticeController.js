@@ -1,4 +1,6 @@
 const db = require('../database/db');
+const auditService = require('../services/auditService');
+const { extractUserInfo } = require('../middleware/auditMiddleware');
 
 const noticeController = {
   getNotices: async (req, res) => {
@@ -31,6 +33,25 @@ const noticeController = {
         WHERE n.id = ?
       `, [result.insertId]);
 
+      // Log audit trail
+      const userInfo = extractUserInfo(req);
+      await auditService.logActivity({
+        staffId: userInfo.staffId || created_by,
+        staffName: userInfo.staffName,
+        staffUsername: userInfo.staffUsername,
+        action: 'CREATE_NOTICE',
+        entityType: 'notice',
+        entityId: result.insertId,
+        details: {
+          noticeId: result.insertId,
+          title: title,
+          content: content,
+          createdBy: created_by
+        },
+        ipAddress: userInfo.ipAddress,
+        userAgent: userInfo.userAgent
+      });
+
       res.status(201).json(newNotice[0]);
     } catch (error) {
       console.error('Error creating notice:', error);
@@ -43,6 +64,19 @@ const noticeController = {
     const { title, content } = req.body;
 
     try {
+      // Fetch current notice to get old values
+      const [currentNotice] = await db.query(`
+        SELECT *
+        FROM notices n
+        WHERE n.id = ?
+      `, [id]);
+
+      if (currentNotice.length === 0) {
+        return res.status(404).json({ message: 'Notice not found' });
+      }
+
+      const oldNotice = currentNotice[0];
+
       await db.query(
         'UPDATE notices SET title = ?, content = ? WHERE id = ?',
         [title, content, id]
@@ -51,13 +85,29 @@ const noticeController = {
       const [updatedNotice] = await db.query(`
         SELECT *
         FROM notices n
-         
         WHERE n.id = ?
       `, [id]);
 
-      if (updatedNotice.length === 0) {
-        return res.status(404).json({ message: 'Notice not found' });
-      }
+      // Log audit trail
+      const userInfo = extractUserInfo(req);
+      await auditService.logActivity({
+        staffId: userInfo.staffId,
+        staffName: userInfo.staffName,
+        staffUsername: userInfo.staffUsername,
+        action: 'UPDATE_NOTICE',
+        entityType: 'notice',
+        entityId: parseInt(id),
+        details: {
+          noticeId: parseInt(id),
+          oldTitle: oldNotice.title,
+          newTitle: title,
+          oldContent: oldNotice.content,
+          newContent: content,
+          createdBy: oldNotice.created_by
+        },
+        ipAddress: userInfo.ipAddress,
+        userAgent: userInfo.userAgent
+      });
 
       res.json(updatedNotice[0]);
     } catch (error) {
@@ -70,11 +120,40 @@ const noticeController = {
     const { id } = req.params;
 
     try {
-      const [result] = await db.query('DELETE FROM notices WHERE id = ?', [id]);
-      
-      if (result.affectedRows === 0) {
+      // Fetch notice details before deleting to log in audit trail
+      const [noticeToDelete] = await db.query(`
+        SELECT *
+        FROM notices n
+        WHERE n.id = ?
+      `, [id]);
+
+      if (noticeToDelete.length === 0) {
         return res.status(404).json({ message: 'Notice not found' });
       }
+
+      const notice = noticeToDelete[0];
+
+      const [result] = await db.query('DELETE FROM notices WHERE id = ?', [id]);
+      
+      // Log audit trail
+      const userInfo = extractUserInfo(req);
+      await auditService.logActivity({
+        staffId: userInfo.staffId,
+        staffName: userInfo.staffName,
+        staffUsername: userInfo.staffUsername,
+        action: 'DELETE_NOTICE',
+        entityType: 'notice',
+        entityId: parseInt(id),
+        details: {
+          noticeId: parseInt(id),
+          title: notice.title,
+          content: notice.content,
+          createdBy: notice.created_by,
+          status: notice.status
+        },
+        ipAddress: userInfo.ipAddress,
+        userAgent: userInfo.userAgent
+      });
 
       res.status(204).send();
     } catch (error) {

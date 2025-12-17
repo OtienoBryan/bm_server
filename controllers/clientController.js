@@ -1,4 +1,6 @@
 const db = require('../database/db');
+const auditService = require('../services/auditService');
+const { extractUserInfo } = require('../middleware/auditMiddleware');
 
 const clientController = {
   // Get all clients
@@ -116,6 +118,20 @@ const clientController = {
         [result.insertId]
       );
 
+      // Log audit trail
+      const userInfo = extractUserInfo(req);
+      await auditService.logActivity({
+        staffId: userInfo.staffId,
+        staffName: userInfo.staffName,
+        staffUsername: userInfo.staffUsername,
+        action: 'CREATE_CLIENT',
+        entityType: 'client',
+        entityId: result.insertId,
+        details: { name, account_number, email },
+        ipAddress: userInfo.ipAddress,
+        userAgent: userInfo.userAgent
+      });
+
       console.log('Client created successfully:', newClient[0]);
       res.status(201).json(newClient[0]);
     } catch (error) {
@@ -166,6 +182,20 @@ const clientController = {
         return res.status(404).json({ message: 'Client not found' });
       }
 
+      // Log audit trail
+      const userInfo = extractUserInfo(req);
+      await auditService.logActivity({
+        staffId: userInfo.staffId,
+        staffName: userInfo.staffName,
+        staffUsername: userInfo.staffUsername,
+        action: 'UPDATE_CLIENT',
+        entityType: 'client',
+        entityId: parseInt(id),
+        details: { name, account_number, email },
+        ipAddress: userInfo.ipAddress,
+        userAgent: userInfo.userAgent
+      });
+
       console.log('Client updated successfully:', updatedClient[0]);
       res.json(updatedClient[0]);
     } catch (error) {
@@ -194,6 +224,21 @@ const clientController = {
 
       // Delete client
       await db.query('DELETE FROM clients WHERE id = ?', [id]);
+      
+      // Log audit trail
+      const userInfo = extractUserInfo(req);
+      await auditService.logActivity({
+        staffId: userInfo.staffId,
+        staffName: userInfo.staffName,
+        staffUsername: userInfo.staffUsername,
+        action: 'DELETE_CLIENT',
+        entityType: 'client',
+        entityId: parseInt(id),
+        details: { name: client[0].name, account_number: client[0].account_number },
+        ipAddress: userInfo.ipAddress,
+        userAgent: userInfo.userAgent
+      });
+
       console.log('Client deleted successfully');
       res.status(204).send();
     } catch (error) {

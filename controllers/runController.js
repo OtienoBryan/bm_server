@@ -1,4 +1,5 @@
 const db = require('../database/db');
+const { DateTime } = require('luxon');
 
 const runController = {
   getRuns: async (req, res) => {
@@ -38,6 +39,26 @@ const runController = {
     } = req.body;
 
     try {
+      // Convert pickup_date to Nairobi timezone
+      let nairobiPickupDate = pickup_date;
+      try {
+        let dt = DateTime.fromISO(pickup_date, { zone: 'Africa/Nairobi' });
+        if (!dt.isValid) {
+          dt = DateTime.fromSQL(pickup_date, { zone: 'Africa/Nairobi' });
+        }
+        if (!dt.isValid) {
+          dt = DateTime.fromISO(pickup_date);
+          if (dt.isValid) {
+            dt = dt.setZone('Africa/Nairobi');
+          }
+        }
+        if (dt.isValid) {
+          nairobiPickupDate = dt.setZone('Africa/Nairobi').toSQL({ includeOffset: false });
+        }
+      } catch (error) {
+        console.error('Error converting pickup_date to Nairobi timezone:', error);
+      }
+
       const [result] = await db.query(
         `INSERT INTO requests (
           user_id, user_name, service_type_id, branch_id,
@@ -46,7 +67,7 @@ const runController = {
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           user_id, user_name, service_type_id, branch_id,
-          pickup_location, delivery_location, pickup_date,
+          pickup_location, delivery_location, nairobiPickupDate,
           description, price, priority, latitude, longitude
         ]
       );
@@ -84,6 +105,28 @@ const runController = {
     } = req.body;
 
     try {
+      // Convert pickup_date to Nairobi timezone if provided
+      let nairobiPickupDate = pickup_date;
+      if (pickup_date) {
+        try {
+          let dt = DateTime.fromISO(pickup_date, { zone: 'Africa/Nairobi' });
+          if (!dt.isValid) {
+            dt = DateTime.fromSQL(pickup_date, { zone: 'Africa/Nairobi' });
+          }
+          if (!dt.isValid) {
+            dt = DateTime.fromISO(pickup_date);
+            if (dt.isValid) {
+              dt = dt.setZone('Africa/Nairobi');
+            }
+          }
+          if (dt.isValid) {
+            nairobiPickupDate = dt.setZone('Africa/Nairobi').toSQL({ includeOffset: false });
+          }
+        } catch (error) {
+          console.error('Error converting pickup_date to Nairobi timezone:', error);
+        }
+      }
+
       await db.query(
         `UPDATE requests 
          SET service_type_id = ?,
@@ -103,7 +146,7 @@ const runController = {
           branch_id,
           pickup_location,
           delivery_location,
-          pickup_date,
+          nairobiPickupDate,
           description,
           price,
           priority,

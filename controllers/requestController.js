@@ -1,4 +1,7 @@
 const db = require('../database/db');
+const auditService = require('../services/auditService');
+const { extractUserInfo } = require('../middleware/auditMiddleware');
+const { DateTime } = require('luxon');
 
 const requestController = {
   getRequests: async (req, res) => {
@@ -79,6 +82,35 @@ const requestController = {
     } = req.body;
 
     try {
+      // Convert pickup_date to Nairobi timezone
+      let nairobiPickupDate = pickup_date;
+      try {
+        // Parse the incoming date (could be in various formats)
+        let dt = DateTime.fromISO(pickup_date, { zone: 'Africa/Nairobi' });
+        
+        // If ISO parsing fails, try SQL format
+        if (!dt.isValid) {
+          dt = DateTime.fromSQL(pickup_date, { zone: 'Africa/Nairobi' });
+        }
+        
+        // If still invalid, try as local time and convert to Nairobi
+        if (!dt.isValid) {
+          dt = DateTime.fromISO(pickup_date);
+          if (dt.isValid) {
+            dt = dt.setZone('Africa/Nairobi');
+          }
+        }
+        
+        if (dt.isValid) {
+          nairobiPickupDate = dt.setZone('Africa/Nairobi').toSQL({ includeOffset: false });
+        } else {
+          console.warn('Could not parse pickup_date, using original:', pickup_date);
+        }
+      } catch (error) {
+        console.error('Error converting pickup_date to Nairobi timezone:', error);
+        // Use original if conversion fails
+      }
+
       const [result] = await db.query(
         `INSERT INTO requests (
           user_id, user_name, service_type_id, branch_id,
@@ -87,7 +119,7 @@ const requestController = {
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           user_id, user_name, service_type_id, branch_id,
-          pickup_location, delivery_location, pickup_date,
+          pickup_location, delivery_location, nairobiPickupDate,
           description, price, priority, latitude, longitude
         ]
       );
@@ -106,6 +138,32 @@ const requestController = {
          WHERE r.id = ?`,
         [result.insertId]
       );
+
+      // Get service type and branch names for audit log
+      const serviceTypeName = newRequest[0]?.service_type_name || null;
+      const branchName = newRequest[0]?.branch_name || (branch_id === 0 ? newRequest[0]?.client_name : null);
+
+      // Log audit trail
+      const userInfo = extractUserInfo(req);
+      await auditService.logActivity({
+        staffId: user_id || userInfo.staffId,
+        staffName: user_name || userInfo.staffName,
+        staffUsername: user_name || userInfo.staffUsername,
+        action: 'CREATE_REQUEST',
+        entityType: 'request',
+        entityId: result.insertId,
+        details: {
+          serviceTypeId: service_type_id,
+          serviceTypeName,
+          branchId: branch_id,
+          branchName,
+          pickupLocation: pickup_location,
+          deliveryLocation: delivery_location,
+          price: price
+        },
+        ipAddress: userInfo.ipAddress,
+        userAgent: userInfo.userAgent
+      });
 
       res.status(201).json(newRequest[0]);
     } catch (error) {
@@ -132,6 +190,28 @@ const requestController = {
     } = req.body;
 
     try {
+      // Convert pickup_date to Nairobi timezone if provided
+      let nairobiPickupDate = pickup_date;
+      if (pickup_date) {
+        try {
+          let dt = DateTime.fromISO(pickup_date, { zone: 'Africa/Nairobi' });
+          if (!dt.isValid) {
+            dt = DateTime.fromSQL(pickup_date, { zone: 'Africa/Nairobi' });
+          }
+          if (!dt.isValid) {
+            dt = DateTime.fromISO(pickup_date);
+            if (dt.isValid) {
+              dt = dt.setZone('Africa/Nairobi');
+            }
+          }
+          if (dt.isValid) {
+            nairobiPickupDate = dt.setZone('Africa/Nairobi').toSQL({ includeOffset: false });
+          }
+        } catch (error) {
+          console.error('Error converting pickup_date to Nairobi timezone:', error);
+        }
+      }
+
       await db.query(
         `UPDATE requests 
          SET service_type_id = ?,
@@ -152,7 +232,7 @@ const requestController = {
           branch_id,
           pickup_location,
           delivery_location,
-          pickup_date,
+          nairobiPickupDate,
           description,
           price,
           priority,
@@ -183,6 +263,31 @@ const requestController = {
         return res.status(404).json({ message: 'Request not found' });
       }
 
+      // Get service type and branch names for audit log
+      const serviceTypeName = updatedRequest[0]?.service_type_name || null;
+      const branchName = updatedRequest[0]?.branch_name || (branch_id === 0 ? updatedRequest[0]?.client_name : null);
+
+      // Log audit trail
+      const userInfo = extractUserInfo(req);
+      await auditService.logActivity({
+        staffId: userInfo.staffId,
+        staffName: userInfo.staffName,
+        staffUsername: userInfo.staffUsername,
+        action: 'UPDATE_REQUEST',
+        entityType: 'request',
+        entityId: parseInt(id),
+        details: {
+          serviceTypeId: service_type_id,
+          serviceTypeName,
+          branchId: branch_id,
+          branchName,
+          status: status,
+          priority: priority
+        },
+        ipAddress: userInfo.ipAddress,
+        userAgent: userInfo.userAgent
+      });
+
       res.json(updatedRequest[0]);
     } catch (error) {
       console.error('Error updating request:', error);
@@ -194,11 +299,31 @@ const requestController = {
     const { id } = req.params;
 
     try {
+      // Get request details before deletion for audit
+      const [request] = await db.query('SELECT * FROM requests WHERE id = ?', [id]);
+      
       const [result] = await db.query('DELETE FROM requests WHERE id = ?', [id]);
       
       if (result.affectedRows === 0) {
         return res.status(404).json({ message: 'Request not found' });
       }
+
+      // Log audit trail
+      const userInfo = extractUserInfo(req);
+      await auditService.logActivity({
+        staffId: userInfo.staffId,
+        staffName: userInfo.staffName,
+        staffUsername: userInfo.staffUsername,
+        action: 'DELETE_REQUEST',
+        entityType: 'request',
+        entityId: parseInt(id),
+        details: request.length > 0 ? {
+          pickupLocation: request[0].pickup_location,
+          deliveryLocation: request[0].delivery_location
+        } : null,
+        ipAddress: userInfo.ipAddress,
+        userAgent: userInfo.userAgent
+      });
 
       res.status(204).send();
     } catch (error) {
@@ -235,6 +360,20 @@ const requestController = {
       if (updatedRequest.length === 0) {
         return res.status(404).json({ message: 'Request not found' });
       }
+
+      // Log audit trail
+      const userInfo = extractUserInfo(req);
+      await auditService.logActivity({
+        staffId: userInfo.staffId,
+        staffName: userInfo.staffName,
+        staffUsername: userInfo.staffUsername,
+        action: 'UPDATE_REQUEST_STATUS',
+        entityType: 'request',
+        entityId: parseInt(id),
+        details: { status },
+        ipAddress: userInfo.ipAddress,
+        userAgent: userInfo.userAgent
+      });
 
       res.json(updatedRequest[0]);
     } catch (error) {
